@@ -1,0 +1,33 @@
+
+//calculation the x and y cordinate where qpainter will be set
+if(m_rotate==0)
+{
+    label_x=hit_box[i].x0*m_scale;
+    label_y=hit_box[i].y0*m_scale;
+    label_width=width*m_scale;
+    label_heigth=hight*m_scale;
+
+}
+else if(m_rotate==90 || m_rotate==-270)//if rotated clockwise or anti clockwise
+{
+    label_width=hight*m_scale;
+    label_heigth=width*m_scale;
+
+    label_x=label->width()-hit_box[i].y0*m_scale-label_width;
+    label_y=hit_box[i].x0*m_scale;
+
+}
+else if(m_rotate==180||m_rotate==-180)//if rotated clockwise or anti clockwise
+{
+    label_x=label->width()-hit_box[i].x0*m_scale-width*m_scale;
+    label_y=label->height()-hit_box[i].y0*m_scale-hight*m_scale;
+    label_width=width*m_scale;
+    label_heigth=hight*m_scale;
+}
+else if(m_rotate==270 || m_rotate==-90)//if rotated clockwise or anti clockwise
+{
+    label_width=hight*m_scale;
+    label_heigth=width*m_scale;
+    label_x=hit_box[i].y0*m_scale;
+    label_y=label->height()-hit_box[i].x0*m_scale-label_heigth;
+}
