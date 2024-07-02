@@ -1,6 +1,8 @@
-from PyQt6.QtWidgets import (QFileDialog, QInputDialog, QMainWindow, QApplication,
-                            QLabel, QMessageBox, QScrollArea, QScrollBar, QVBoxLayout, QWidget)
-from PyQt6.QtGui import (QImage, QColor, QPen, QBrush, QPainter, QPixmap, QShortcut, QKeySequence)
+from PyQt6.QtWidgets import (QFileDialog, QInputDialog, QMainWindow, QApplication, QStyle, QLineEdit,
+                            QLabel, QMessageBox, QScrollArea, QScrollBar, QVBoxLayout, QWidget, 
+                            QMenuBar, QMenu)
+from PyQt6.QtGui import (QImage, QColor, QPen, QBrush, QPainter, QPixmap, QShortcut, QKeySequence, QAction,
+                        QActionGroup)
 from PyQt6.QtCore import Qt, QFileInfo, QLocale, QRectF
 
 from statusbar import StatusBar
@@ -19,6 +21,12 @@ class Direction(Enum):
     LEFT = 2
     RIGHT = 3
 
+class AnnotationType(Enum):
+    UNDERLINE = 0,
+    SQUIGGLE = 1,
+    STRIKETHROUGH = 2,
+    HIGHLIGHT = 3,
+
 class Dodo(QMainWindow):
 
     cur_page_num = -1
@@ -28,6 +36,9 @@ class Dodo(QMainWindow):
     searchText = ""
     searchIndex = -1
     searchCount = 0
+    annotType = AnnotationType.HIGHLIGHT
+    annotColor = (255, 255, 0)
+
 
 
     def __init__(self, *args, **kwargs) -> None:
@@ -60,6 +71,7 @@ class Dodo(QMainWindow):
         self.setCentralWidget(self.widget)
 
         self.__handle_shortcuts()
+        self.__handle_menubar()
         self.commandbar.searchSignal.connect(lambda text: self.search(text))
         self.show()
         
@@ -73,14 +85,32 @@ class Dodo(QMainWindow):
             if filename == "":
                 QMessageBox.information(self, "OOPS", "Could not open file")
                 return
+            else:
+                self.statusbar.setFileName(filename)
+                locale = self.locale()
+                self.statusbar.setFilePageCount(str(self.total_page_count))
+                self.statusbar.setFileSize(locale.formattedDataSize(QFileInfo(filename).size()));
+                self.__readFile(filename)
         else:
             self.__readFile(filename)
         self.statusbar.setFileName(filename)
         locale = self.locale()
+        self.statusbar.setFilePageCount(str(self.total_page_count))
         self.statusbar.setFileSize(locale.formattedDataSize(QFileInfo(filename).size()));
 
     def __handle_shortcuts(self):
 
+        # TOC
+        self.kb_toc = QShortcut(QKeySequence("Tab"), self)
+        self.kb_toc.activated.connect(lambda: self.toggleTOC())
+
+        # First Page
+        self.kb_first_page = QShortcut(QKeySequence("g,g"), self)
+        self.kb_first_page.activated.connect(lambda: self.gotoPage(0))
+
+        # Last Page
+        self.kb_last_page = QShortcut(QKeySequence("Shift+g"), self)
+        self.kb_last_page.activated.connect(lambda: self.gotoPage(self.total_page_count - 1))
 
         # Scroll Down
         self.kb_scroll_down = QShortcut(QKeySequence("j"), self)
@@ -139,11 +169,12 @@ class Dodo(QMainWindow):
         self.doc = mupdf.open(filename)
 
         if self.doc.needs_pass:
-            # passwdDialog = QInputDialog(self)
-            # passwd = passwdDialog.exec()
-            # if not self.doc.authenticate(passwd):
-            #     QMessageBox.information(self, "Error", "Wrong password")
-            return
+            passwd, ok = QInputDialog(self).getText(self, "Document Encrypted", "Enter password: ")
+            if ok and passwd:
+                self.doc.authenticate(passwd)
+            else:
+                QMessageBox.information(self, "Error opening file", "Provided password was incorrect")
+                return
 
         self.total_page_count = self.doc.page_count
         self.gotoPage(0)
@@ -159,7 +190,7 @@ class Dodo(QMainWindow):
         if p > self.total_page_count - 1 or p < 0:
             return
 
-        self.statusbar.setCurrentPage(str(p))
+        self.statusbar.setCurrentPage(str(p + 1))
 
         self.cur_page_num = p
         self.render()
@@ -170,9 +201,9 @@ class Dodo(QMainWindow):
     def render(self) -> None:
         self.page = self.doc[self.getCurrentPageNumber()]
         self.page.set_rotation(self.rotate)
-        pix = self.page.get_pixmap(matrix = mupdf.Matrix(self.zoom, self.zoom))
-        fmt = QImage.Format.Format_RGBA8888 if pix.alpha else QImage.Format.Format_RGB888
-        self.image = QImage(pix.samples_ptr, pix.width, pix.height, pix.stride, fmt)
+        self.pix = self.page.get_pixmap(matrix = mupdf.Matrix(self.zoom, self.zoom))
+        fmt = QImage.Format.Format_RGBA8888 if self.pix.alpha else QImage.Format.Format_RGB888
+        self.image = QImage(self.pix.samples_ptr, self.pix.width, self.pix.height, self.pix.stride, fmt)
 
         if self.searchText != "":
             self.search(self.searchText)
@@ -195,16 +226,13 @@ class Dodo(QMainWindow):
     def search(self, text: str) -> None:
         self.searchText = text
         self.gimage = self.image
-        hit_box = self.page.search_for(text, quads=True)
+        quads = self.page.search_for(text, quads=True)
 
-        if hit_box == None:
+        if quads == None:
             return
 
-        if len(hit_box) == 0:
+        if len(quads) == 0:
             return
-
-        quads = hit_box
-
 
         for quad in quads:
 
@@ -216,26 +244,32 @@ class Dodo(QMainWindow):
 
             width = quad.lr.x - quad.ul.x;
             height = quad.lr.y - quad.ul.y;
-            label_width = width * self.zoom
-            label_height = height * self.zoom
 
             match(self.rotate):
                 case 0:
                     label_x = quad.ll.x * self.zoom
                     label_y = quad.ul.y * self.zoom
+                    label_width = width * self.zoom
+                    label_height = height * self.zoom
 
                 case 90 | -270:
+                    label_width = height * self.zoom
+                    label_height = width * self.zoom
                     label_x = self.label.width() - quad.ul.y * self.zoom - label_width
                     label_y = quad.ul.x * self.zoom
 
                 case 180 | -180:
                     label_x = self.label.width() - quad.ul.x * self.zoom - width * self.zoom
                     label_y = self.label.height() - quad.ul.y * self.zoom - height * self.zoom
+                    label_width = width * self.zoom
+                    label_height = height * self.zoom
 
                 case 270 | -90:
+                    label_width = height * self.zoom
+                    label_height = width * self.zoom
                     label_x = quad.ul.y * self.zoom
                     label_y = self.label.height() - quad.ul.x * self.zoom - label_height
-
+    
             rect = QRectF(label_x, label_y, label_width, label_height)
 
             self.painter.drawRect(rect)
@@ -270,3 +304,64 @@ class Dodo(QMainWindow):
         elif direction == Direction.RIGHT:
             self.hscroll.setValue(self.hscroll.value() + amount)
 
+    def toggleTOC(self):
+        if (self.doc):
+            self.toc = self.doc.get_toc()
+
+    def annotate(self, quad):
+        self.page.add_squiggly_annot(quad)
+
+    def __handle_menubar(self):
+        self.menubar = QMenuBar()
+        self.setMenuBar(self.menubar)
+
+        self.menu_file = QMenu("File")
+        self.menu_edit = QMenu("Edit")
+        self.menu_view = QMenu("View")
+
+        self.action_open_file = QAction("Open")
+        self.menu_open_recent_file = QMenu("Open Recent")
+        self.action_exit = QAction("Exit")
+
+        self.menu_file.addAction(self.action_open_file)
+        self.menu_file.addMenu(self.menu_open_recent_file)
+        self.menu_file.addAction(self.action_exit)
+
+        self.menu_fit = QMenu("Fit")
+
+        self.menu_fit_action_group = QActionGroup(self)
+
+        self.action_fit_width = QAction("Width")
+        self.action_fit_height = QAction("Height")
+
+        self.action_fit_width.setCheckable(True)
+        self.action_fit_height.setCheckable(True)
+
+        self.menu_fit.addAction(self.action_fit_width)
+        self.menu_fit.addAction(self.action_fit_height)
+
+        self.menu_view.addMenu(self.menu_fit)
+
+        self.menu_fit_action_group.addAction(self.action_fit_width)
+        self.menu_fit_action_group.addAction(self.action_fit_height)
+
+        self.action_fit_width.triggered.connect(lambda: self.fitToWidth())
+        self.action_fit_height.triggered.connect(lambda: self.fitToHeight())
+
+        self.action_open_file.triggered.connect(lambda: self.Open())
+
+        self.action_pref = QAction("Preferences")
+
+        self.menu_edit.addAction(self.action_pref)
+
+        self.menubar.addMenu(self.menu_file)
+        self.menubar.addMenu(self.menu_edit)
+        self.menubar.addMenu(self.menu_view)
+
+    def fitToWidth(self) -> None:
+        self.zoom = self.label.width() / self.pix.w
+        self.render()
+
+    def fitToHeight(self) -> None:
+        self.zoom = self.label.height() / self.pix.h
+        self.render()

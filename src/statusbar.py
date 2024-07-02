@@ -20,8 +20,8 @@ class StatusBar(QWidget):
         self.layout.addWidget(self.label_msg)
         self.layout.addWidget(self.label_filename, 1)
         self.layout.addWidget(self.label_filesize)
-        self.layout.addWidget(self.label_file_page_count)
         self.layout.addWidget(self.label_current_page)
+        self.layout.addWidget(self.label_file_page_count)
 
         self.setFixedHeight(30)
 
