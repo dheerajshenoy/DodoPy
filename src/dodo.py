@@ -1,4 +1,3 @@
-from re import A
 from PyQt6.QtWidgets import (QFileDialog, QInputDialog, QMainWindow, QApplication,
                             QLabel, QMessageBox, QScrollArea, QScrollBar, QVBoxLayout, QWidget)
 from PyQt6.QtGui import (QImage, QColor, QPen, QBrush, QPainter, QPixmap, QShortcut, QKeySequence)
@@ -7,9 +6,18 @@ from PyQt6.QtCore import Qt, QFileInfo, QLocale, QRectF
 from statusbar import StatusBar
 from commandbar import CommandBar
 
+from enum import Enum
+
 import pymupdf as mupdf
 import sys
 import os
+
+# Direction enum
+class Direction(Enum):
+    DOWN = 0
+    UP = 1
+    LEFT = 2
+    RIGHT = 3
 
 class Dodo(QMainWindow):
 
@@ -34,6 +42,9 @@ class Dodo(QMainWindow):
         self.widget = QWidget()
         self.statusbar = StatusBar()
         self.commandbar = CommandBar()
+        
+        self.vscroll = self.scrollArea.verticalScrollBar()
+        self.hscroll = self.scrollArea.horizontalScrollBar()
 
         self.image = None
 
@@ -69,6 +80,32 @@ class Dodo(QMainWindow):
         self.statusbar.setFileSize(locale.formattedDataSize(QFileInfo(filename).size()));
 
     def __handle_shortcuts(self):
+
+
+        # Scroll Down
+        self.kb_scroll_down = QShortcut(QKeySequence("j"), self)
+        self.kb_scroll_down.activated.connect(lambda: self.scrollVertical(Direction.DOWN, 30))
+
+        # Scroll More Down
+        self.kb_scroll_more_down = QShortcut(QKeySequence("Ctrl+d"), self)
+        self.kb_scroll_more_down.activated.connect(lambda: self.scrollVertical(Direction.DOWN, 300))
+
+        # Scroll Up
+        self.kb_scroll_up = QShortcut(QKeySequence("k"), self)
+        self.kb_scroll_up.activated.connect(lambda: self.scrollVertical(Direction.UP, 30))
+
+        # Scroll More Up
+        self.kb_scroll_more_up = QShortcut(QKeySequence("Ctrl+u"), self)
+        self.kb_scroll_more_up.activated.connect(lambda: self.scrollVertical(Direction.UP, 300))
+
+
+        # Scroll Left
+        self.kb_scroll_left = QShortcut(QKeySequence("h"), self)
+        self.kb_scroll_left.activated.connect(lambda: self.scrollHorizontal(Direction.LEFT, 30))
+
+        # Scroll Right
+        self.kb_scroll_right = QShortcut(QKeySequence("l"), self)
+        self.kb_scroll_right.activated.connect(lambda: self.scrollHorizontal(Direction.RIGHT, 30))
 
         # Next Page
         self.kb_next_page = QShortcut(QKeySequence("Shift+j"), self)
@@ -179,30 +216,23 @@ class Dodo(QMainWindow):
 
             width = quad.lr.x - quad.ul.x;
             height = quad.lr.y - quad.ul.y;
+            label_width = width * self.zoom
+            label_height = height * self.zoom
 
-            print(self.rotate)
             match(self.rotate):
                 case 0:
                     label_x = quad.ll.x * self.zoom
                     label_y = quad.ul.y * self.zoom
-                    label_width = width * self.zoom
-                    label_height = height * self.zoom
 
                 case 90 | -270:
-                    label_width = height * self.zoom
-                    label_height = width * self.zoom
                     label_x = self.label.width() - quad.ul.y * self.zoom - label_width
                     label_y = quad.ul.x * self.zoom
 
                 case 180 | -180:
                     label_x = self.label.width() - quad.ul.x * self.zoom - width * self.zoom
                     label_y = self.label.height() - quad.ul.y * self.zoom - height * self.zoom
-                    label_width = width * self.zoom
-                    label_height = height  * self.zoom
 
                 case 270 | -90:
-                    label_width= height * self.zoom
-                    label_height = width * self.zoom
                     label_x = quad.ul.y * self.zoom
                     label_y = self.label.height() - quad.ul.x * self.zoom - label_height
 
@@ -225,5 +255,18 @@ class Dodo(QMainWindow):
         self.rotate = int(self.rotate) % 360
         self.render()
 
+    def scrollVertical(self, direction: Direction, amount: float) -> None:
 
+        match(direction):
+            case Direction.UP:
+                self.vscroll.setValue(self.vscroll.value() - amount)
+
+            case Direction.DOWN:
+                self.vscroll.setValue(self.vscroll.value() + amount)
+
+    def scrollHorizontal(self, direction: Direction, amount: float) -> None:
+        if direction == Direction.LEFT:
+            self.hscroll.setValue(self.hscroll.value() - amount)
+        elif direction == Direction.RIGHT:
+            self.hscroll.setValue(self.hscroll.value() + amount)
 
